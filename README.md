@@ -34,7 +34,8 @@ Start the server:
 yarn dev:server
 ```
 
-Your application will be available at `http://localhost:5173`.
+Your front-end application will be available at `http://localhost:5173`.
+Your back-end application will be available at `http://localhost:3000`.
 
 ## Building for Production
 
