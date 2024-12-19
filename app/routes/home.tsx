@@ -1,7 +1,7 @@
 import type { Route } from "./+types/home";
 import { Welcome } from "../welcome/welcome";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_: Route.MetaArgs) {
   return [
     { title: "Welcome to LECOLE Fast Track Challenge" },
     { name: "description", content: "Welcome to LECOLE Fast Track Challenge" }

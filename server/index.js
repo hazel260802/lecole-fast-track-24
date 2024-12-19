@@ -1,160 +1,47 @@
 import express from "express";
-import sqlite3 from "sqlite3";
 import http from "http";
-import { Server } from "socket.io";
+import cors from "cors"; // Import CORS middleware
+import setupSocket from "./socket/socket.js"; // Import socket setup function
+import { initDatabase, seedDatabase } from "../database/database.js"; // Import database functions
+import authRoutes from "./routes/auth.js"; // Import auth routes
+import productRoutes from "./routes/product.js"; // Import product routes
+import errorController from "./controllers/error.js"; // Import error controller
 
 const app = express();
 const port = 3000;
 
+// Create HTTP server
 const server = http.createServer(app);
-const io = new Server(server);
 
-const db = new sqlite3.Database("./database/products.db", (err) => {
-  if (err) {
-    console.error("Error opening database:", err);
-  } else {
-    console.log("Connected to the SQLite database.");
-  }
-});
+// Setup Socket.io with CORS and pass the server instance to it
+setupSocket(server);
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT,
-      price REAL NOT NULL,
-      stock INTEGER NOT NULL
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      roles TEXT NOT NULL,
-      secret_phrase TEXT NOT NULL
-    )
-  `);
-});
-
-const seedProductData = [
-  { name: "Product A", description: "Description of Product A", price: 19.99, stock: 100 },
-  { name: "Product B", description: "Description of Product B", price: 29.99, stock: 150 },
-  { name: "Product C", description: "Description of Product C", price: 9.99, stock: 200 },
-  { name: "Product D", description: "Description of Product D", price: 49.99, stock: 80 },
-  { name: "Product E", description: "Description of Product E", price: 24.99, stock: 50 }
-];
-
-const seedUserData = [
-  { username: "user1", roles: "user", secret_phrase: "secret123" },
-  { username: "admin1", roles: "admin", secret_phrase: "admin123" },
-  { username: "user2", roles: "user", secret_phrase: "secret456" },
-  { username: "admin2", roles: "admin", secret_phrase: "admin456" }
-];
-
-db.serialize(() => {
-  db.get("SELECT COUNT(*) AS count FROM products", (err, row) => {
-    if (row?.count === 0) {
-      const stmt = db.prepare("INSERT INTO products (name, description, price, stock) VALUES (?, ?, ?, ?)");
-      for (const product of seedProductData) {
-        stmt.run(product.name, product.description, product.price, product.stock);
-      }
-      stmt.finalize();
-      console.log("Database seeded with products data");
-    }
-  });
-
-  db.get("SELECT COUNT(*) AS count FROM users", (err, row) => {
-    if (row?.count === 0) {
-      const stmt = db.prepare("INSERT INTO users (username, roles, secret_phrase) VALUES (?, ?, ?)");
-      for (const user of seedUserData) {
-        stmt.run(user.username, user.roles, user.secret_phrase);
-      }
-      stmt.finalize();
-      console.log("Database seeded with users data");
-    }
-  });
-});
-
+// Middleware for parsing JSON request bodies
 app.use(express.json());
 
-app.get("/api/product", (req, res) => {
-  db.all("SELECT * FROM products", [], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
+// Enable CORS for development purposes
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://172.17.0.2:5173"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 
-app.post("/api/register", (req, res) => {
-  const { username, roles, secret_phrase } = req.body;
+// Use the imported routes
+app.use("/api/auth", authRoutes); // All authentication-related routes will be under /api/auth
+app.use("/api/product", productRoutes); // All product-related routes will be under /api/product
 
-  if (!username || !roles || !secret_phrase) {
-    return res.status(400).json({ error: "Username, roles, and secret phrase are required" });
-  }
+// Error handling middleware
+app.use(errorController);
 
-  db.run(
-    "INSERT INTO users (username, roles, secret_phrase) VALUES (?, ?, ?)",
-    [username, roles, secret_phrase],
-    (err) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.status(201).json({ message: "User created successfully" });
-    }
-  );
-});
+// Initialize the database and seed it with sample data
+initDatabase();
+seedDatabase();
 
-io.on("connection", (socket) => {
-  console.log("A user connected");
 
-  socket.on("update-secret-phrase", (data) => {
-    const { userId, newSecretPhrase, actorId } = data;
-    console.log(data);
-
-    db.get("SELECT * FROM users WHERE username = ?", [actorId], (err, actor) => {
-      if (err) {
-        socket.emit("error", { error: "Database error" });
-        console.log(err);
-        return;
-      }
-
-      if (!actor) {
-        socket.emit("error", { error: `Actor not found: ${actorId}` });
-        console.log(`Actor not found: ${actorId}`);
-        return;
-      }
-
-      if (actor.roles === "admin" || actorId === userId) {
-        db.run("UPDATE users SET secret_phrase = ? WHERE username = ?", [newSecretPhrase, userId], (err) => {
-          if (err) {
-            socket.emit("error", { error: "Failed to update secret phrase" });
-            console.log(err);
-            return;
-          }
-
-          io.emit("secret-phrase-updated", {
-            userId,
-            newSecretPhrase
-          });
-          socket.emit("success", { message: "Secret phrase updated successfully" });
-          console.log("Secret phrase updated successfully");
-        });
-      } else {
-        socket.emit("error", { error: "You do not have permission to update this user's secret phrase" });
-        console.log(`You do not have permission to update this user's secret phrase: ${actorId}, ${actor.roles}`);
-      }
-    });
-  });
-
-  socket.on("disconnect", () => {
-    console.log("User disconnected");
-  });
-});
-
+// Start the server on the specified port
 server.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });

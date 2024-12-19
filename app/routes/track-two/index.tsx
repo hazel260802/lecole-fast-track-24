@@ -1,15 +1,14 @@
-import type { Route } from "../track-one/+types";
+import type { Route } from "../track-one/+types"
+import UserPage from "./user/UserPage";
 
-import { Button } from "~/components/ui/button";
-
-export function meta({}: Route.MetaArgs) {
-  return [{ title: "Track Two" }];
+export function meta(_: Route.MetaArgs) {
+  return [{ title: "Track Two" }]
 }
 
 export default function TrackTwo() {
   return (
-    <div className="flex items-center justify-center h-screen">
-      <Button>Click me</Button>
-    </div>
-  );
+      <div className="max-w-screen-2xl mx-auto">
+        <UserPage />
+      </div>
+  )
 }
